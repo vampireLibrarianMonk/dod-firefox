@@ -26,6 +26,21 @@ echo "=== STEP 6: Add Mozillateam PPA ==="
 sudo add-apt-repository -y ppa:mozillateam/ppa
 sudo apt update
 
+echo "=== STEP 6b: Prevent Ubuntu from forcing the Firefox snap ==="
+sudo tee /etc/apt/preferences.d/mozillateam-firefox <<EOF
+Package: firefox*
+Pin: release o=LP-PPA-mozillateam
+Pin-Priority: 1001
+
+Package: firefox*
+Pin: origin "archive.ubuntu.com"
+Pin-Priority: -1
+
+Package: firefox*
+Pin: origin "security.ubuntu.com"
+Pin-Priority: -1
+EOF
+
 echo "=== STEP 7: Unhold Firefox packages if snapd marked them held ==="
 sudo apt-mark unhold firefox firefox-esr 2>/dev/null || true
 
@@ -44,34 +59,28 @@ echo "=== STEP 10: Verify final installation ==="
 which firefox
 firefox --version || true
 
-echo "=== STEP 11: Purging Firefox NSS Security Database ==="
-
-# Detect Firefox profile (prefer default-release)
-FF_PROFILE=$(find ~/.mozilla/firefox -maxdepth 1 -type d \( -name "*.default-release" -o -name "*.default" \) | head -n 1)
-
-if [ -z "$FF_PROFILE" ]; then
-  echo "ERROR: Could not find a Firefox profile. Please launch Firefox at least once and close it before running this script."
-  exit 1
-fi
-
-echo "Detected Firefox profile: $FF_PROFILE"
-
-# Backup current NSS security database
-echo "Backing up cert9.db, key4.db, pkcs11.txt..."
-mkdir -p ~/firefox-profile-backup
-cp "$FF_PROFILE"/cert9.db "$FF_PROFILE"/key4.db "$FF_PROFILE"/pkcs11.txt ~/firefox-profile-backup/ 2>/dev/null || true
-
-# Remove existing NSS security database to regenerate clean
-echo "Removing old NSS database files..."
-rm -f "$FF_PROFILE"/cert9.db "$FF_PROFILE"/key4.db "$FF_PROFILE"/pkcs11.txt
-
-echo "Firefox NSS database purged and backed up. Restart Firefox once to regenerate."
+echo "=== STEP 11: Run Firefox Once to Establish User Profile ==="
 
 firefox & sleep 1 && pkill firefox
 
-echo
-echo "=== DONE ==="
-echo "Run Firefox once to generate profile:"
-echo "    firefox &"
-echo
-echo "Your Firefox profile will now appear under ~/.mozilla/firefox"
+echo "=== STEP 12: Establish OpenSC to the Firefox Profile ==="
+
+# Detect Firefox profile directory
+FF_PROFILE=$(find ~/.mozilla/firefox -maxdepth 1 -type d \( -name "*.default-release" -o -name "*.default" \) | head -n 1)
+
+if [ -z "$FF_PROFILE" ]; then
+  echo "ERROR: Could not detect Firefox profile. Please launch Firefox at least once, then close it before running this step."
+  exit 1
+fi
+
+echo "Registering OpenSC PKCS#11 module in Firefox profile: $FF_PROFILE"
+
+modutil -dbdir "sql:$FF_PROFILE" \
+  -add "OpenSC" \
+  -libfile /usr/lib/x86_64-linux-gnu/pkcs11/opensc-pkcs11.so || echo "Module may already be added or Firefox is open. Close Firefox and try again if needed."
+
+echo "=== STEP 13: "Listing PKCS#11 modules in Firefox Profile ==="
+
+echo "Listing PKCS#11 modules in Firefox profile..."
+modutil -list -dbdir "sql:$FF_PROFILE"
+
