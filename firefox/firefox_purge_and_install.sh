@@ -1,6 +1,25 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+
+echo "=== STEP 0: Ask for username ==="
+
+# Ask for username (or accept as first argument)
+USER_NAME="${1:-}"
+
+# If no username passed, prompt for one
+if [ -z "$USER_NAME" ]; then
+    read -rp "Enter the target username: " USER_NAME
+fi
+
+# Validate that the user exists on the system
+if ! id "$USER_NAME" >/dev/null 2>&1; then
+    echo "Error: User '$USER_NAME' does not exist."
+    exit 1
+fi
+
+echo "Using username: $USER_NAME"
+
 echo "=== STEP 1: Remove any Snap Firefox remnants ==="
 sudo snap remove --purge firefox 2>/dev/null || true
 
@@ -61,26 +80,46 @@ firefox --version || true
 
 echo "=== STEP 11: Run Firefox Once to Establish User Profile ==="
 
-firefox & sleep 1 && pkill firefox
+runuser -l "$USER_NAME" -c "DISPLAY=:0 XDG_RUNTIME_DIR=/run/user/$(id -u "$USER_NAME") firefox &"
+sleep 1
+pkill -u "$USER_NAME" firefox
 
-echo "=== STEP 12: Establish OpenSC to the Firefox Profile ==="
+echo "=== STEP 12: Establish OpenSC in the Firefox Profile (Idempotent) ==="
+
+USER_HOME=$(eval echo "~$USER_NAME")
 
 # Detect Firefox profile directory
-FF_PROFILE=$(find ~/.mozilla/firefox -maxdepth 1 -type d \( -name "*.default-release" -o -name "*.default" \) | head -n 1)
+FF_PROFILE=$(find "$USER_HOME/.mozilla/firefox" \
+    -maxdepth 1 -type d \
+    \( -name "*.default-release" -o -name "*.default" \) \
+    | head -n 1)
 
 if [ -z "$FF_PROFILE" ]; then
-  echo "ERROR: Could not detect Firefox profile. Please launch Firefox at least once, then close it before running this step."
-  exit 1
+    echo "ERROR: Could not detect Firefox profile for user $USER_NAME."
+    echo "Launch Firefox once as the user, then re-run this script."
+    exit 1
 fi
 
-echo "Registering OpenSC PKCS#11 module in Firefox profile: $FF_PROFILE"
+echo "Detected Firefox profile at: $FF_PROFILE"
 
-modutil -dbdir "sql:$FF_PROFILE" \
-  -add "OpenSC" \
-  -libfile /usr/lib/x86_64-linux-gnu/pkcs11/opensc-pkcs11.so || echo "Module may already be added or Firefox is open. Close Firefox and try again if needed."
+# Check if module already exists
+MODULE_EXISTS=$(runuser -l "$USER_NAME" -c \
+    "modutil -list -dbdir 'sql:$FF_PROFILE'" 2>/dev/null | grep -c "OpenSC" || true)
 
-echo "=== STEP 13: "Listing PKCS#11 modules in Firefox Profile ==="
+if [ "$MODULE_EXISTS" -gt 0 ]; then
+    echo "OpenSC PKCS#11 module already installed — skipping."
+else
+    echo "Adding OpenSC PKCS#11 module (non-interactive)..."
+    runuser -l "$USER_NAME" -c "
+        printf '\n' | modutil -dbdir 'sql:$FF_PROFILE' \
+            -add 'OpenSC' \
+            -force \
+            -libfile /usr/lib/x86_64-linux-gnu/pkcs11/opensc-pkcs11.so
+    "
+    echo "OpenSC module added."
+fi
 
-echo "Listing PKCS#11 modules in Firefox profile..."
-modutil -list -dbdir "sql:$FF_PROFILE"
-
+# Final confirmation
+echo "=== STEP 13: Listing PKCS#11 modules ==="
+runuser -l "$USER_NAME" -c \
+    "modutil -list -dbdir 'sql:$FF_PROFILE'"

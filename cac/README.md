@@ -27,7 +27,7 @@ Example output:
 
 ```
 BUSID  VID:PID    DEVICE
-1-7    0x0CC1     SCR331 Smart Card Reader
+1-7    04e6:5814  Microsoft Usbccid Smartcard Reader (WUDF)                     
 ```
 
 Your busid may differ (ex: `1-4`, `2-3`, etc.).
@@ -64,6 +64,15 @@ Then attach the reader again:
 usbipd attach --wsl --busid 1-7
 ```
 
+Example Output:
+
+```powershell
+usbipd: info: Using WSL distribution 'Ubuntu-22.04' to attach; the device will be available in all WSL 2 distributions.
+usbipd: info: Loading vhci_hcd module.
+usbipd: info: Detected networking mode 'nat'.
+usbipd: info: Using IP address 172.20.192.1 to reach the host.
+```
+
 ---
 
 ### **Step 3 — Confirm WSL sees the USB reader**
@@ -77,7 +86,9 @@ lsusb
 You should see something resembling:
 
 ```
-Bus 001 Device 007: ID 0cc1:xxxx SCM Microsystems SCR331
+Bus 002 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+Bus 001 Device 002: ID 04e6:5814 SCM Microsystems, Inc. SCR3500 A Contact Reader
+Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
 ```
 
 You may now proceed with CAC middleware installation.
@@ -87,6 +98,7 @@ You may now proceed with CAC middleware installation.
 # 1. Install CAC Middleware (OpenSC + pcscd)
 
 ```bash
+sudo apt-get update # if first time installing
 sudo apt install -y opensc pcscd pcsc-tools
 sudo systemctl enable --now pcscd
 ```
